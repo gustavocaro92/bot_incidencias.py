@@ -3765,6 +3765,7 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancelar", cancelar),
+            CommandHandler("logout", cmd_logout),
             CommandHandler("menu", cmd_menu),
             MessageHandler(filters.Regex("^🔙 Menú$"), p_volver_menu),
             CQ(cb_datos_campo, pattern="^dc:"),
