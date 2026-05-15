@@ -3660,19 +3660,6 @@ async def cb_spell_confirm(upd, c):
     return next_state
 
 
-# ── Logout ─────────────────────────────────────────────────────────────────────
-async def cmd_logout(u, c):
-    uid = u.effective_user.id
-    if uid in _SESIONES:
-        del _SESIONES[uid]
-    c.user_data.clear()
-    await u.message.reply_text(
-        "🔒 Sesión cerrada. Escribe /start para iniciar sesión nuevamente.",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return ConversationHandler.END
-
-
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     threading.Thread(target=iniciar_servidor, daemon=True).start()
@@ -3789,6 +3776,7 @@ def main():
         allow_reentry=True
     )
     app.add_handler(conv)
+    app.add_handler(CommandHandler("logout", cmd_logout))
     # ── Red de seguridad: dc: funciona aunque el ConversationHandler no tenga estado ──
     app.add_handler(CQ(cb_datos_campo, pattern="^dc:"), group=1)
     logger.info("Bot iniciado — Autenticacion TOTP + Telconet activa")
