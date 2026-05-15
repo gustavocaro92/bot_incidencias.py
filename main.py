@@ -3660,6 +3660,19 @@ async def cb_spell_confirm(upd, c):
     return next_state
 
 
+# ── Logout ─────────────────────────────────────────────────────────────────────
+async def cmd_logout(u, c):
+    uid = u.effective_user.id
+    if uid in _SESIONES:
+        del _SESIONES[uid]
+    c.user_data.clear()
+    await u.message.reply_text(
+        "🔒 Sesión cerrada. Escribe /start para iniciar sesión nuevamente.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return ConversationHandler.END
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     threading.Thread(target=iniciar_servidor, daemon=True).start()
