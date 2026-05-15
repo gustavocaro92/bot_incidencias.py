@@ -3552,6 +3552,26 @@ async def cancelar(u, c):
     await u.message.reply_text("Cancelado. Escribe /start.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
+async def cmd_logout(u, c):
+    uid = u.effective_user.id
+    email = None
+    if uid in _SESIONES:
+        email = _SESIONES[uid].get("email")
+        del _SESIONES[uid]
+    c.user_data.clear()
+    if email:
+        await u.message.reply_text(
+            f"🔒 Sesión cerrada para `{email}`.\nUsa /start para volver a ingresar.",
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    else:
+        await u.message.reply_text(
+            "No tienes sesión activa. Usa /start.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    return ConversationHandler.END
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CALLBACK: Confirmar o rechazar texto con errores ortográficos
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3660,19 +3680,6 @@ async def cb_spell_confirm(upd, c):
     return next_state
 
 
-# ── Logout ─────────────────────────────────────────────────────────────────────
-async def cmd_logout(u, c):
-    uid = u.effective_user.id
-    if uid in _SESIONES:
-        del _SESIONES[uid]
-    c.user_data.clear()
-    await u.message.reply_text(
-        "🔒 Sesión cerrada. Escribe /start para iniciar sesión nuevamente.",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return ConversationHandler.END
-
-
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     threading.Thread(target=iniciar_servidor, daemon=True).start()
@@ -3778,6 +3785,7 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancelar", cancelar),
+            CommandHandler("logout", cmd_logout),
             CommandHandler("menu", cmd_menu),
             MessageHandler(filters.Regex("^🔙 Menú$"), p_volver_menu),
             CQ(cb_datos_campo, pattern="^dc:"),
@@ -3789,6 +3797,7 @@ def main():
         allow_reentry=True
     )
     app.add_handler(conv)
+    app.add_handler(CommandHandler("logout", cmd_logout))
     # ── Red de seguridad: dc: funciona aunque el ConversationHandler no tenga estado ──
     app.add_handler(CQ(cb_datos_campo, pattern="^dc:"), group=1)
     logger.info("Bot iniciado — Autenticacion TOTP + Telconet activa")
