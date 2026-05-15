@@ -1,1 +1,1 @@
-web: python bot_incidencias.py
+python bot_incidencias.py
