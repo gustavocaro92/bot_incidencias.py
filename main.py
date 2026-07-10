@@ -126,6 +126,18 @@ class KeepAlive(BaseHTTPRequestHandler):
 def iniciar_servidor():
     HTTPServer(("0.0.0.0", PORT), KeepAlive).serve_forever()
 
+def auto_ping():
+    import time, urllib.request
+    url = os.environ.get("SELF_URL", "")
+    if not url:
+        return
+    while True:
+        time.sleep(600)
+        try:
+            urllib.request.urlopen(url, timeout=10)
+        except Exception as e:
+            logger.warning(f"Auto-ping fallo: {e}")
+
 
 # ── Estados ────────────────────────────────────────────────────────────────────
 (AUTH,
@@ -3683,6 +3695,7 @@ async def cb_spell_confirm(upd, c):
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     threading.Thread(target=iniciar_servidor, daemon=True).start()
+    threading.Thread(target=auto_ping, daemon=True).start()
     persistence = PicklePersistence(filepath="/tmp/bot_data.pkl")
     app = Application.builder().token(BOT_TOKEN).persistence(persistence).build()
     TXT_O_FOTO = (filters.TEXT & ~filters.COMMAND) | filters.PHOTO
