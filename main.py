@@ -939,17 +939,19 @@ def _validar_codigo(texto):
     return bool(re.fullmatch(r"\d{8}[-/_ ]\d{4}", texto))
 
 def _validar_fecha(texto):
-    """DD/MM/AAAA — también acepta MM-DD-AAAA y MM.DD.AAAA"""
-    t = texto.replace("-","/").replace(".","/")
+    """DD/MM/AAAA — solo se acepta exactamente con / como en el ejemplo (21/06/2022)"""
+    t = texto.strip()
+    if not re.fullmatch(r"\d{2}/\d{2}/\d{4}", t):
+        return None
     try:
         datetime.strptime(t, "%d/%m/%Y")
-        return t   # devuelve normalizado con /
+        return t
     except ValueError:
         return None
 
 def _validar_hora(texto):
-    """HH:MM — también acepta H:MM y HH.MM"""
-    t = texto.replace(".",":").strip()
+    """HH:MM — solo se acepta exactamente con : como en el ejemplo (12:00)"""
+    t = texto.strip()
     if re.fullmatch(r"\d{1,2}:\d{2}", t):
         try:
             h, m = t.split(":")
