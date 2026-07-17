@@ -200,6 +200,29 @@ def _verificar_ortografia(texto: str) -> list:
             break
     return errores[:5]
 
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"  # banderas
+    "\U0001F300-\U0001F5FF"  # símbolos y pictogramas
+    "\U0001F600-\U0001F64F"  # emoticones
+    "\U0001F680-\U0001F6FF"  # transporte y mapas
+    "\U0001F700-\U0001F77F"  # alquímicos
+    "\U0001F780-\U0001F7FF"  # geométricos extendidos
+    "\U0001F800-\U0001F8FF"  # flechas suplementarias
+    "\U0001F900-\U0001F9FF"  # símbolos suplementarios
+    "\U0001FA00-\U0001FAFF"  # símbolos extendidos-A
+    "\U00002600-\U000026FF"  # misceláneos
+    "\U00002700-\U000027BF"  # dingbats
+    "\U00002300-\U000023FF"  # técnicos misceláneos (⏰⌚ etc.)
+    "\U00002B00-\U00002BFF"  # flechas y símbolos
+    "\U0000FE0F"             # variation selector (modificador emoji)
+    "\U0000200D"             # zero width joiner (emojis combinados)
+    "]", flags=re.UNICODE)
+
+def _tiene_emoji(texto: str) -> bool:
+    """Devuelve True si el texto contiene algún emoji (no se permite en resumen/conclusiones)."""
+    return bool(_EMOJI_PATTERN.search(texto))
+
 def _aplicar_correcciones(texto: str, errores: list) -> str:
     """Reemplaza automáticamente las palabras incorrectas por sus sugerencias."""
     resultado = texto
@@ -2269,7 +2292,14 @@ async def p_resumen(u, c):
         await u.message.reply_text("✅ Resumen omitido.\n\n📝 Sección completada.", reply_markup=KB_MENU)
         return await mostrar_menu(u, c)
     lista = c.user_data.get("resumen_lista", [])
-    if len(lista) >= 20:
+    edit_idx = c.user_data.get("_edit_index_res")
+    if _tiene_emoji(t):
+        await u.message.reply_text(
+            "⚠️ No se permiten emojis en el resumen descriptivo.\n"
+            "Por favor envía solo texto (sin emoticones):",
+            reply_markup=_ikb_listo("res"))
+        return RESUMEN
+    if edit_idx is None and len(lista) >= 20:
         await u.message.reply_text(
             f"⚠️ Límite de 20 líneas alcanzado.\n📊 Total: 20/20",
             reply_markup=_ikb_listo("res"))
@@ -2279,9 +2309,16 @@ async def p_resumen(u, c):
         c.user_data["_spell_pending"] = {
             "campo": "_resumen_line", "valor": t, "errores": errores,
             "next_state": RESUMEN, "current_state": RESUMEN,
+            "edit_index": edit_idx,
         }
         await u.message.reply_text(_msg_spell(t, errores), parse_mode="Markdown", reply_markup=_ikb_spell())
         return RESUMEN
+    if edit_idx is not None:
+        lista[edit_idx] = t
+        c.user_data["resumen_lista"] = lista
+        c.user_data.pop("_edit_index_res", None)
+        await u.message.reply_text(f"✅ Línea {edit_idx+1} actualizada.")
+        return await _mostrar_lineas_resumen(u.message.chat_id, c)
     lista.append(t)
     c.user_data["resumen_lista"] = lista
     n = len(lista)
@@ -2518,7 +2555,14 @@ async def p_conclusiones(u, c):
         await u.message.reply_text("✅ Conclusiones omitidas.\n\n📌 Sección completada.", reply_markup=KB_MENU)
         return await mostrar_menu(u, c)
     lista = c.user_data.get("conclusiones_lista", [])
-    if len(lista) >= 20:
+    edit_idx = c.user_data.get("_edit_index_con")
+    if _tiene_emoji(t):
+        await u.message.reply_text(
+            "⚠️ No se permiten emojis en las conclusiones.\n"
+            "Por favor envía solo texto (sin emoticones):",
+            reply_markup=_ikb_listo("con"))
+        return CONCLUSIONES
+    if edit_idx is None and len(lista) >= 20:
         await u.message.reply_text(
             f"⚠️ Límite de 20 líneas alcanzado.\n📊 Total: 20/20",
             reply_markup=_ikb_listo("con"))
@@ -2528,9 +2572,16 @@ async def p_conclusiones(u, c):
         c.user_data["_spell_pending"] = {
             "campo": "_conclusiones_line", "valor": t, "errores": errores,
             "next_state": CONCLUSIONES, "current_state": CONCLUSIONES,
+            "edit_index": edit_idx,
         }
         await u.message.reply_text(_msg_spell(t, errores), parse_mode="Markdown", reply_markup=_ikb_spell())
         return CONCLUSIONES
+    if edit_idx is not None:
+        lista[edit_idx] = t
+        c.user_data["conclusiones_lista"] = lista
+        c.user_data.pop("_edit_index_con", None)
+        await u.message.reply_text(f"✅ Línea {edit_idx+1} actualizada.")
+        return await _mostrar_lineas_conclusiones(u.message.chat_id, c)
     lista.append(t)
     c.user_data["conclusiones_lista"] = lista
     n = len(lista)
@@ -3107,6 +3158,7 @@ def _ikb_resumen_acc(n):
     """Acciones para resumen/conclusiones."""
     btns = [[InlineKeyboardButton("➕ Agregar línea",   callback_data="racc:add")]]
     if n > 0:
+        btns.append([InlineKeyboardButton("✏️ Editar / 🗑 Eliminar línea", callback_data="racc:list")])
         btns.append([InlineKeyboardButton("🗑 Borrar todo", callback_data="racc:clear")])
     btns.append([InlineKeyboardButton("✅ Listo",        callback_data="racc:listo")])
     return InlineKeyboardMarkup(btns)
@@ -3115,9 +3167,60 @@ def _ikb_concl_acc(n):
     """Acciones para conclusiones."""
     btns = [[InlineKeyboardButton("➕ Agregar línea",   callback_data="cacc:add")]]
     if n > 0:
+        btns.append([InlineKeyboardButton("✏️ Editar / 🗑 Eliminar línea", callback_data="cacc:list")])
         btns.append([InlineKeyboardButton("🗑 Borrar todo", callback_data="cacc:clear")])
     btns.append([InlineKeyboardButton("✅ Listo",        callback_data="cacc:listo")])
     return InlineKeyboardMarkup(btns)
+
+def _ikb_resumen_lineas(lista):
+    """Teclado con un botón editar y un botón eliminar por cada línea de resumen."""
+    btns = []
+    for i, l in enumerate(lista):
+        etiqueta = f"{i+1}. {l[:30]}{'…' if len(l) > 30 else ''}"
+        btns.append([
+            InlineKeyboardButton(f"✏️ {etiqueta}", callback_data=f"racc:edit:{i}"),
+            InlineKeyboardButton("🗑",              callback_data=f"racc:del:{i}"),
+        ])
+    btns.append([InlineKeyboardButton("➕ Agregar línea", callback_data="racc:add")])
+    btns.append([InlineKeyboardButton("✅ Listo",         callback_data="racc:listo")])
+    return InlineKeyboardMarkup(btns)
+
+def _ikb_concl_lineas(lista):
+    """Teclado con un botón editar y un botón eliminar por cada línea de conclusiones."""
+    btns = []
+    for i, l in enumerate(lista):
+        etiqueta = f"{i+1}. {l[:30]}{'…' if len(l) > 30 else ''}"
+        btns.append([
+            InlineKeyboardButton(f"✏️ {etiqueta}", callback_data=f"cacc:edit:{i}"),
+            InlineKeyboardButton("🗑",              callback_data=f"cacc:del:{i}"),
+        ])
+    btns.append([InlineKeyboardButton("➕ Agregar línea", callback_data="cacc:add")])
+    btns.append([InlineKeyboardButton("✅ Listo",         callback_data="cacc:listo")])
+    return InlineKeyboardMarkup(btns)
+
+async def _mostrar_lineas_resumen(chat_id, c):
+    """Envía el listado actual de líneas de resumen con botones editar/eliminar por línea."""
+    lista = c.user_data.get("resumen_lista", [])
+    if not lista:
+        await c.bot.send_message(chat_id, "📝 No hay líneas de resumen guardadas todavía.",
+                                  reply_markup=_ikb_resumen_acc(0))
+        return RESUMEN
+    texto = "📝 RESUMEN — Líneas guardadas:\n\n" + "\n".join(
+        f"{i+1}. {l}" for i, l in enumerate(lista))
+    await c.bot.send_message(chat_id, texto, reply_markup=_ikb_resumen_lineas(lista))
+    return RESUMEN
+
+async def _mostrar_lineas_conclusiones(chat_id, c):
+    """Envía el listado actual de líneas de conclusiones con botones editar/eliminar por línea."""
+    lista = c.user_data.get("conclusiones_lista", [])
+    if not lista:
+        await c.bot.send_message(chat_id, "📌 No hay líneas de conclusiones guardadas todavía.",
+                                  reply_markup=_ikb_concl_acc(0))
+        return CONCLUSIONES
+    texto = "📌 CONCLUSIONES — Líneas guardadas:\n\n" + "\n".join(
+        f"{i+1}. {l}" for i, l in enumerate(lista))
+    await c.bot.send_message(chat_id, texto, reply_markup=_ikb_concl_lineas(lista))
+    return CONCLUSIONES
 
 # Teclados de sección — incluyen botón de regreso al menú
 # Estos son INLINE — no reemplazan el menú persistente de abajo
@@ -3237,7 +3340,37 @@ async def cb_racc(upd, c):
     if acc == "listo":
         await q.edit_message_text(f"✅ Resumen guardado. {len(lista)} línea(s).")
         return await mostrar_menu(_FU(q), c)
+    if acc == "list":
+        if not lista:
+            await q.edit_message_text("📝 No hay líneas de resumen guardadas todavía.",
+                                       reply_markup=_ikb_resumen_acc(0))
+            return RESUMEN
+        texto = "📝 RESUMEN — Toca ✏️ para editar o 🗑 para eliminar:\n\n" + "\n".join(
+            f"{i+1}. {l}" for i, l in enumerate(lista))
+        await q.edit_message_text(texto, reply_markup=_ikb_resumen_lineas(lista))
+        return RESUMEN
+    if acc == "edit":
+        idx = int(q.data.split(":")[2])
+        if 0 <= idx < len(lista):
+            c.user_data["_edit_index_res"] = idx
+            await q.edit_message_text(
+                f"✏️ Editando línea {idx+1}:\n\n«{lista[idx]}»\n\nEnvía el nuevo texto:")
+        return RESUMEN
+    if acc == "del":
+        idx = int(q.data.split(":")[2])
+        if 0 <= idx < len(lista):
+            lista.pop(idx)
+            c.user_data["resumen_lista"] = lista
+        if not lista:
+            await q.edit_message_text("🗑 Línea eliminada. No quedan líneas de resumen.",
+                                       reply_markup=_ikb_resumen_acc(0))
+            return RESUMEN
+        texto = "🗑 Línea eliminada.\n\n📝 RESUMEN — Líneas guardadas:\n\n" + "\n".join(
+            f"{i+1}. {l}" for i, l in enumerate(lista))
+        await q.edit_message_text(texto, reply_markup=_ikb_resumen_lineas(lista))
+        return RESUMEN
     # "add" → entrar a estado RESUMEN para escribir
+    c.user_data.pop("_edit_index_res", None)
     n = len(lista)
     preview = ""
     if lista:
@@ -3273,7 +3406,37 @@ async def cb_cacc(upd, c):
     if acc == "listo":
         await q.edit_message_text(f"✅ Conclusiones guardadas. {len(lista)} línea(s).")
         return await mostrar_menu(_FU(q), c)
+    if acc == "list":
+        if not lista:
+            await q.edit_message_text("📌 No hay líneas de conclusiones guardadas todavía.",
+                                       reply_markup=_ikb_concl_acc(0))
+            return CONCLUSIONES
+        texto = "📌 CONCLUSIONES — Toca ✏️ para editar o 🗑 para eliminar:\n\n" + "\n".join(
+            f"{i+1}. {l}" for i, l in enumerate(lista))
+        await q.edit_message_text(texto, reply_markup=_ikb_concl_lineas(lista))
+        return CONCLUSIONES
+    if acc == "edit":
+        idx = int(q.data.split(":")[2])
+        if 0 <= idx < len(lista):
+            c.user_data["_edit_index_con"] = idx
+            await q.edit_message_text(
+                f"✏️ Editando línea {idx+1}:\n\n«{lista[idx]}»\n\nEnvía el nuevo texto:")
+        return CONCLUSIONES
+    if acc == "del":
+        idx = int(q.data.split(":")[2])
+        if 0 <= idx < len(lista):
+            lista.pop(idx)
+            c.user_data["conclusiones_lista"] = lista
+        if not lista:
+            await q.edit_message_text("🗑 Línea eliminada. No quedan líneas de conclusiones.",
+                                       reply_markup=_ikb_concl_acc(0))
+            return CONCLUSIONES
+        texto = "🗑 Línea eliminada.\n\n📌 CONCLUSIONES — Líneas guardadas:\n\n" + "\n".join(
+            f"{i+1}. {l}" for i, l in enumerate(lista))
+        await q.edit_message_text(texto, reply_markup=_ikb_concl_lineas(lista))
+        return CONCLUSIONES
     # "add" → entrar a estado CONCLUSIONES para escribir
+    c.user_data.pop("_edit_index_con", None)
     n = len(lista)
     preview = ""
     if lista:
@@ -3620,6 +3783,13 @@ async def cb_spell_confirm(upd, c):
     # Casos especiales: líneas de resumen / conclusiones
     if campo == "_resumen_line":
         lista = c.user_data.get("resumen_lista", [])
+        edit_idx = pending.get("edit_index")
+        if edit_idx is not None:
+            lista[edit_idx] = valor
+            c.user_data["resumen_lista"] = lista
+            c.user_data.pop("_edit_index_res", None)
+            await q.edit_message_text(f"✅ Línea {edit_idx+1} actualizada.")
+            return await _mostrar_lineas_resumen(q.message.chat_id, c)
         lista.append(valor)
         c.user_data["resumen_lista"] = lista
         n = len(lista)
@@ -3629,6 +3799,13 @@ async def cb_spell_confirm(upd, c):
 
     if campo == "_conclusiones_line":
         lista = c.user_data.get("conclusiones_lista", [])
+        edit_idx = pending.get("edit_index")
+        if edit_idx is not None:
+            lista[edit_idx] = valor
+            c.user_data["conclusiones_lista"] = lista
+            c.user_data.pop("_edit_index_con", None)
+            await q.edit_message_text(f"✅ Línea {edit_idx+1} actualizada.")
+            return await _mostrar_lineas_conclusiones(q.message.chat_id, c)
         lista.append(valor)
         c.user_data["conclusiones_lista"] = lista
         n = len(lista)
