@@ -132,7 +132,7 @@ def auto_ping():
     if not url:
         return
     while True:
-        time.sleep(600)
+        time.sleep(720)
         try:
             urllib.request.urlopen(url, timeout=10)
         except Exception as e:
